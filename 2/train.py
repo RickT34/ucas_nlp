@@ -46,5 +46,6 @@ else:
 print(f"Training {model_name} model...")
 train_model(model)
 torch.save(model.state_dict(), DIR_DATA / f"{model_name}.pth")
-# FNN: loss=4.092
-# LSTM: loss=3.946
+# FNN: loss=3.9621229651235508
+# RNN: loss=4.275432231522135
+# LSTM: loss=3.6293267565527505
