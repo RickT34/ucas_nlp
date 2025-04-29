@@ -1,0 +1,7 @@
+numpy
+requests
+bs4
+PyPDF2
+lxml
+tqdm
+matplotlib
