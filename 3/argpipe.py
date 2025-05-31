@@ -23,10 +23,10 @@ class ArgPipe:
             self._data[name] = value
         else:
             assert name in self.temp_keys, f"Key {name} is read-only."
-            if not isinstance(self._data[name], list) or not isinstance(value, list):
-                self._data[name] = value
+            if isinstance(self._data[name], list) and isinstance(value, list):
+                self._data[name] += value
             else:
-                self._data[name].extend(value)
+                self._data[name] = value
 
     def push(self):
         self.stack.append(self.temp_keys)
@@ -42,14 +42,7 @@ class ArgPipe:
     
     def __str__(self):
         return str(self._data)
-
-    @property
-    def keys(self):
-        return self._data.keys()
     
-    # @property
-    # def data(self):
-    #     return self._data
 
 class PipeFunctionBase:
     def __init__(self, name):
@@ -65,7 +58,7 @@ class PipeFunctionBase:
     def exec(self, /, **kwds: Any):
         p = ArgPipe(**kwds)
         p = self(p)
-        return p
+        return p._data
     
 
 class PipeFunction(PipeFunctionBase):
@@ -89,10 +82,10 @@ def _process_result(res, default_name:str):
 
 def pipewarp(func):
     """Wrap a function to make it pipe-able."""
-    args = func.__code__.co_varnames
 
     def wrapper(p: ArgPipe):
-        res = func(**{k: p[k] for k in args if k in p.keys})
+        args = func.__code__.co_varnames
+        res = func(**{k: p[k] for k in args if k in p._data})
         d = _process_result(res, "re_" + func.__name__)
         for k, v in d.items():
             p.insert(k, v)

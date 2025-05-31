@@ -1,2 +1,2 @@
 model_name: qwen2.5-72b-instruct
-system_prompt: default.txt
+system_prompt: cot.txt
