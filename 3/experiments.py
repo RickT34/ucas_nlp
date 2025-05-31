@@ -10,12 +10,13 @@ import argparse
 
 
 @pipewarp
-def get_config(config_file: str):
+def get_config(config_file: Path):
     with open(config_file, "r", encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     config["system_prompt"] = open("prompts/"+config["system_prompt"], "r", encoding="utf-8").read()
     return config
 
+@pipewarp
 def get_client():
     client = OpenAI(
         api_key=os.getenv("API_KEY"),
@@ -95,10 +96,10 @@ def summery(results: list[dict]):
     }
 
 
-def save_result(model_name: str, system_prompt: str, samples: list, answers: list, answers_raw: list, results: list, summery: dict, output_dir: str, config_file: str):
+def save_result(model_name: str, system_prompt: str, samples: list, answers: list, answers_raw: list, results: list, summery: dict, output_dir: str, config_file: Path):
     d = {"summery": summery, "model_name": model_name, "system_prompt": system_prompt}
     d["raw"] = list({"sample": s, "answer": a, "result": r, "answer_raw": a_raw} for s, a, r, a_raw in zip(samples, answers, results, answers_raw))  # type: ignore
-    file = output_dir + f"/result_{os.path.basename(config_file)}_{len(samples)}.json"
+    file = output_dir + f"/result_{config_file.name}_{len(samples)}.json"
     json.dump(
         d, open(file, "w", encoding="utf-8"), ensure_ascii=False, indent=4
     )
@@ -106,31 +107,39 @@ def save_result(model_name: str, system_prompt: str, samples: list, answers: lis
 
 if __name__ == "__main__":
 
-    workflow_simple = (
-        get_config
-        | get_client # 获取客户端
+    workflow = (
+        get_client # 获取客户端
         | get_data_samples # 获取数据集
-        | Batch( # 对数据集中每一个样本进行处理
-            fork={"samples": "sample"},
-            func=prepare_prompt # 制作提示词
-                | ask_llm # 调用语言模型进行回答
-                | answer_postprocess # 处理回答
-                | compute_scores, # 计算得分
-            gather={"results": "result", "answers": "answer", "answers_raw": "llm_answer"},
+        | Batch( # 分别对每一种模型/提示词进行实验
+            fork={"config_files": "config_file"},
+            func=get_config # 获取配置文件
+            | Batch( # 对数据集中每一个样本进行处理
+                fork={"samples": "sample"},
+                func= prepare_prompt # 制作提示词
+                    | ask_llm # 调用语言模型进行回答
+                    | answer_postprocess # 处理回答
+                    | compute_scores, # 计算得分
+                gather={"results": "result", "answers": "answer", "answers_raw": "llm_answer"},
+            )
+            | summery # 总结得分
+            | save_result, # 保存结果
+            gather={}
         )
-        | summery # 总结得分
-        | save_result # 保存结果
     )
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--samples_num", type=int, default=3)
+    parser.add_argument("--config_dir", type=str, required=True)
+    parser.add_argument("--samples_num", type=int, default=50)
     parser.add_argument("--output_dir", type=str, default="output")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     random.seed(args.seed)
+    
+    config_files = list(Path(args.config_dir).glob("*.yaml"))
 
-    workflow_simple.exec(config_file=args.config, output_dir=args.output_dir, samples_num=args.samples_num)
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    workflow.exec(config_files=config_files, output_dir=args.output_dir, samples_num=args.samples_num)
 
 
