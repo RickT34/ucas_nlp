@@ -1,0 +1,2 @@
+model_name: "qwen2.5-32b-instruct"
+system_prompt: "进行句子分词, 使用空格进行分隔. 请只输出分词结果."

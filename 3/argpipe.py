@@ -10,26 +10,46 @@ class ArgPipe:
     """Pass arguments and receive results through a pipe."""
 
     def __init__(self, /, **kwds):
-        self.data = dict(**kwds)
+        self._data = dict(**kwds)
+        self.stack = []
+        self.temp_keys = set()
 
     def __getitem__(self, name: str) -> Any:
-        return self.data[name]
+        return self._data[name]
 
     def insert(self, name: str, value: Any) -> None:
-        if name not in self.data:
-            self.data[name] = value
+        if name not in self._data:
+            self.temp_keys.add(name)
+            self._data[name] = value
         else:
-            if not isinstance(self.data[name], list) or not isinstance(value, list):
-                self.data[name] = value
+            assert name in self.temp_keys, f"Key {name} is read-only."
+            if not isinstance(self._data[name], list) or not isinstance(value, list):
+                self._data[name] = value
             else:
-                self.data[name].extend(value)
+                self._data[name].extend(value)
 
-    def set(self, name: str, value: Any):
-        self.data[name] = value
-
+    def push(self):
+        self.stack.append(self.temp_keys)
+        self.temp_keys = set()
+    
+    def pop(self):
+        d = dict()
+        for k in self.temp_keys:
+            d[k] = self._data[k]
+            del self._data[k]
+        self.temp_keys = self.stack.pop()
+        return d
+    
     def __str__(self):
-        return str(self.data)
+        return str(self._data)
 
+    @property
+    def keys(self):
+        return self._data.keys()
+    
+    # @property
+    # def data(self):
+    #     return self._data
 
 class PipeFunctionBase:
     def __init__(self, name):
@@ -41,6 +61,11 @@ class PipeFunctionBase:
     def __or__(self, value: Callable) -> "PipeLine":
         res = PipeLine(self)
         return res | value
+
+    def exec(self, /, **kwds: Any):
+        p = ArgPipe(**kwds)
+        p = self(p)
+        return p
     
 
 class PipeFunction(PipeFunctionBase):
@@ -52,20 +77,25 @@ class PipeFunction(PipeFunctionBase):
         res = self.func(p)
         return res
     
+def _process_result(res, default_name:str):
+    if res is None:
+        return {}
+    elif isinstance(res, dict):
+        return res
+    elif isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], str):
+        return {res[0]: res[1]}
+    else:
+        return {default_name: res}
 
 def pipewarp(func):
     """Wrap a function to make it pipe-able."""
     args = func.__code__.co_varnames
 
     def wrapper(p: ArgPipe):
-        res = func(**{k: p[k] for k in args if k in p.data})
-        if res is not None:
-            if isinstance(res, dict):
-                p.data.update(res)
-            elif isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], str):
-                p.insert(res[0], res[1])
-            else:
-                p.insert("re_" + func.__name__, res)
+        res = func(**{k: p[k] for k in args if k in p.keys})
+        d = _process_result(res, "re_" + func.__name__)
+        for k, v in d.items():
+            p.insert(k, v)
         return p
 
     return PipeFunction(wrapper, func.__name__)
@@ -84,10 +114,6 @@ class PipeLine(PipeFunctionBase):
         self.funcs.append(other)
         return self
 
-    def exec(self, /, **kwds: Any) -> dict:
-        p = ArgPipe(**kwds)
-        p = self(p)
-        return p.data
 
     def __call__(self, p: ArgPipe) -> ArgPipe:
         for func in self.funcs:
@@ -95,26 +121,30 @@ class PipeLine(PipeFunctionBase):
         return p
 
     def __str__(self):
-        return "PipeLine(" + " | ".join(f.name for f in self.funcs) + ")"
+        return "PipeLine(" + " | ".join(f.name for f in self.funcs) + "...)"
     
 
 
 class Batch(PipeFunctionBase):
-    def __init__(self, forkname: dict[str, str], func: PipeFunctionBase):
-        super().__init__(func.name + "_forked")
-        self.forkname = forkname
+    def __init__(self, fork: dict[str, str], func: PipeFunctionBase, gather: dict[str, str]):
+        super().__init__(func.name + "_batch")
+        self.forknames = fork
         self.func = func
+        self.gathernames = gather
 
     def __call__(self, p: ArgPipe) -> ArgPipe:
-        keys = tuple(self.forkname.keys())
-        for values in tqdm.tqdm(tuple(itertools.product(*[p[k] for k in keys]))):
+        keys = tuple(self.forknames.keys())
+        for values in tqdm.tqdm(tuple(zip(*[p[k] for k in keys])), desc=self.name):
+            p.push()
             for k, v in zip(keys, values):
-                p.set(self.forkname[k], v)
+                p.insert(self.forknames[k], v)
             p = self.func(p)
-        for k in self.forkname.values():
-            del p.data[k]
+            red = p.pop()
+            for n, k in self.gathernames.items():
+                if k in red:
+                    p.insert(n, [red[k]])
         return p
-    
+
 
 def debug(func: PipeFunctionBase):
     def debug_wrapper(p: ArgPipe):
@@ -126,33 +156,3 @@ def debug(func: PipeFunctionBase):
     return PipeFunction(debug_wrapper, func.name + "_debug")
 
 
-if __name__ == "__main__":
-
-    @pipewarp
-    def add(a, b):
-        return a + b
-
-    @pipewarp
-    def sub(a, b):
-        return a - b
-
-    @pipewarp
-    def mul(a, b):
-        return a * b
-
-    @pipewarp
-    def div(a, b):
-        return a / b
-
-    @pipewarp
-    def genlist(n):
-        return "inputs", list(range(n))
-
-    @pipewarp
-    def worker(i):
-        return i * 2
-
-    p = genlist | Batch({"inputs": "i"}, worker)
-    print(
-        p.exec(n=5)
-    )  # {'re_add': 5,'re_sub': -1,'re_mul': 6,'re_div': 0.6666666666666666}

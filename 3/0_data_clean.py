@@ -5,7 +5,9 @@ texts = []
 with open(PATH_CORPUS_RAW, "r", encoding="utf-8") as f:
     for line in f.readlines():
         s = line.split()
-        texts.append(tuple(t.split("/")[0] for t in s[1:]))
+        t = tuple(t.split("/")[0] for t in s[1:])
+        if len(t) > 1:
+            texts.append(t)
 
 pickle.dump(
     list(texts),
