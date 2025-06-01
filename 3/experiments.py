@@ -78,7 +78,7 @@ def compute_scores(sample: list[str], answer: list[str]):
         except ZeroDivisionError:
             print(f"Warning: division by zero: TP={TP}, TN={TN}, FP={FP}, FN={FN}")
             print(f"Sample: {sample}, Answer: {answer}")
-            exit(1)
+            matched=False
     return "result", {"accuracy": acc, "precision": precision, "recall": recall, "f1": f1, "matched": matched}
 
 
@@ -129,7 +129,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_dir", type=str, required=True)
-    parser.add_argument("--samples_num", type=int, default=50)
+    parser.add_argument("--samples_num", type=int, default=100)
     parser.add_argument("--output_dir", type=str, default="output")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
