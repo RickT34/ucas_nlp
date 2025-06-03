@@ -119,7 +119,7 @@ class PipeLine(PipeFunctionBase):
 
 
 class Batch(PipeFunctionBase):
-    def __init__(self, fork: dict[str, str], func: PipeFunctionBase, gather: dict[str, str]):
+    def __init__(self, fork: dict[str, str], func: PipeFunctionBase, gather: dict[str, str]={}):
         super().__init__(func.name + "_batch")
         self.forknames = fork
         self.func = func
